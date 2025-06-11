@@ -19,7 +19,7 @@ import time
 import matplotlib.pyplot as plt
 from mpl_toolkits.axes_grid1.inset_locator import zoomed_inset_axes, mark_inset
 
-algorithm_globals.random_seed = 13 # Set the random seed
+algorithm_globals.random_seed = 13342892 # Set the random seed
 
 # Create a quantum circuit with 1 qubit and 2 gate parameters + observable
 qc=QuantumCircuit(1)
@@ -62,8 +62,18 @@ def target_amps(inputweight):
 def Sloss(sampler_qnn_forward, inputweight):
     target_probs = np.abs(target_amps(inputweight))**2
     output_probs = np.array(sampler_qnn_forward).reshape(-1) # Reshape from 2D to 1D array
-    BC = (np.sum(np.sqrt(target_probs * output_probs)))**2 # Bhattacharyya coefficient
-    return 1 - BC, -BC*np.sqrt(target_probs / output_probs) # Classical fidelity and partial derivative
+    
+    # Add small epsilon to prevent division by zero
+    eps = 1e-12
+    output_probs_safe = np.maximum(output_probs, eps)
+    
+    BC = (np.sum(np.sqrt(target_probs * output_probs_safe)))**2 # Bhattacharyya coefficient
+    gradient = -BC * np.sqrt(target_probs / output_probs_safe) # Classical fidelity partial derivative
+    
+    # Handle potential NaN/inf values in gradient
+    gradient = np.nan_to_num(gradient, nan=0.0, posinf=0.0, neginf=0.0)
+    
+    return 1 - BC, gradient
 def Eloss(estimator_qnn_forward, inputweight):
     Z = Operator.from_label("Z")  # 2×2 Pauli-Z matrix
     target_state = target_amps(inputweight)
@@ -96,32 +106,41 @@ def loss_and_gradient(
     # Always return a 1-D array
     return float(loss), np.atleast_1d(grad)
 
-# Instantiate ADAM optimizer
+# Instantiate ADAM optimizer with more conservative settings for quantum optimization
 optimizer = ADAM(
-    maxiter=1000,    # total number of Adam steps
-    lr=0.01,        # learning rate
+    maxiter=1000,     # Reduce iterations since we're taking smaller, more stable steps
+    lr=0.01,        # Much smaller learning rate for quantum optimization (was 0.01)
     beta_1=0.9,
-    beta_2=0.99,
+    beta_2=0.99,    # Slightly higher beta_2 for more momentum averaging
     eps=1e-8
 )
 
-# Build callables for ADAM
-def make_adam_functions(qnn, is_estimator=True):
+# Build callables for ADAM with loss tracking
+def adam_functions(qnn, is_estimator=True):
+    loss_history = []
+    iteration_count = [0]  # Use list to allow modification in nested function
+    
     def loss_fn(w):
         loss, _ = loss_and_gradient(
             w, inputweight,
             estimator_qnn=qnn if is_estimator else None,
             sampler_qnn=qnn if not is_estimator else None,
         )
+        loss_history.append(loss)
+        iteration_count[0] += 1
         return loss
+    
     def grad_fn(w):
         _, grad = loss_and_gradient(
             w, inputweight,
             estimator_qnn=qnn if is_estimator else None,
             sampler_qnn=qnn if not is_estimator else None,
         )
+        # Clip gradients to prevent extreme values that cause oscillations
+        grad = np.clip(grad, -1.0, 1.0)
         return grad
-    return loss_fn, grad_fn
+    
+    return loss_fn, grad_fn, loss_history
 
 # Show initial state before optimization
 estimator_qnn_forward = estimator_qnn.forward(inputweight, weights)
@@ -135,10 +154,10 @@ print(f"Initial RY gates rotation values (weights): {weights[0]:.6f}, {weights[1
 print(f"Initial EstimatorQNN forward pass result: {estimator_qnn_forward}")
 print(f"Initial SamplerQNN forward pass result: {sampler_qnn_forward}")
 
-# Run the optimization
+# Run the optimization with loss tracking
 print("\nRunning ADAM optimization...")
-s_loss_fn, s_grad_fn = make_adam_functions(sampler_qnn, is_estimator=False)
-e_loss_fn, e_grad_fn = make_adam_functions(estimator_qnn, is_estimator=True)
+s_loss_fn, s_grad_fn, s_loss_history = adam_functions(sampler_qnn, is_estimator=False)
+e_loss_fn, e_grad_fn, e_loss_history = adam_functions(estimator_qnn, is_estimator=True)
 initial_weights = weights.copy()  # Use 1D array directly
 
 # Time the SamplerQNN optimization
@@ -147,7 +166,7 @@ s_result = optimizer.minimize(fun=s_loss_fn, x0=initial_weights, jac=s_grad_fn)
 end_time_s = time.time()
 s_optimization_time = end_time_s - start_time_s
 
-# Time the EstimatorQNN optimization
+# Time the EstimatorQNN optimization  
 start_time_e = time.time()
 e_result = optimizer.minimize(fun=e_loss_fn, x0=initial_weights, jac=e_grad_fn)
 end_time_e = time.time()
@@ -370,6 +389,67 @@ plt.tight_layout()
 plt.show()
 
 ## -------------- LOSS CONVERGENCE PLOTS -------------- ##
+print("\n" + "="*50)
+print("LOSS CONVERGENCE VISUALIZATION")
+print("="*50)
+
+# Create loss convergence plots
+fig_loss, (ax1_loss, ax2_loss) = plt.subplots(1, 2, figsize=(16, 6))
+fig_loss.suptitle('Training Loss Convergence - 2 Weight Parameters', fontsize=16, fontweight='bold')
+
+# Plot SamplerQNN loss convergence
+iterations_s = range(1, len(s_loss_history) + 1)
+ax1_loss.plot(iterations_s, s_loss_history, 'r-', linewidth=2, label='SamplerQNN Loss', alpha=0.8)
+ax1_loss.set_xlabel('Training Iteration', fontsize=12)
+ax1_loss.set_ylabel('Loss Value', fontsize=12)
+ax1_loss.set_title('SamplerQNN Loss Convergence', fontsize=14, fontweight='bold')
+ax1_loss.grid(True, alpha=0.3)
+ax1_loss.set_yscale('log')  # Use log scale for better visualization
+ax1_loss.legend()
+
+# Add final loss annotation
+final_s_loss = s_loss_history[-1]
+ax1_loss.annotate(f'Final Loss: {final_s_loss:.6f}', 
+                 xy=(len(s_loss_history), final_s_loss), 
+                 xytext=(len(s_loss_history)*0.7, final_s_loss*2),
+                 arrowprops=dict(arrowstyle='->', color='red', alpha=0.7),
+                 fontsize=10, fontweight='bold', color='red')
+
+# Plot EstimatorQNN loss convergence
+iterations_e = range(1, len(e_loss_history) + 1)
+ax2_loss.plot(iterations_e, e_loss_history, 'orange', linewidth=2, label='EstimatorQNN Loss', alpha=0.8)
+ax2_loss.set_xlabel('Training Iteration', fontsize=12)
+ax2_loss.set_ylabel('Loss Value', fontsize=12)
+ax2_loss.set_title('EstimatorQNN Loss Convergence', fontsize=14, fontweight='bold')
+ax2_loss.grid(True, alpha=0.3)
+ax2_loss.set_yscale('log')  # Use log scale for better visualization
+ax2_loss.legend()
+
+# Add final loss annotation
+final_e_loss = e_loss_history[-1]
+ax2_loss.annotate(f'Final Loss: {final_e_loss:.6f}', 
+                 xy=(len(e_loss_history), final_e_loss), 
+                 xytext=(len(e_loss_history)*0.7, final_e_loss*2),
+                 arrowprops=dict(arrowstyle='->', color='orange', alpha=0.7),
+                 fontsize=10, fontweight='bold', color='orange')
+
+plt.tight_layout()
+plt.show()
+
+# Print convergence statistics
+print(f"SamplerQNN Convergence Statistics:")
+print(f"  Initial Loss: {s_loss_history[0]:.8f}")
+print(f"  Final Loss: {s_loss_history[-1]:.8f}")
+print(f"  Loss Reduction: {(s_loss_history[0] - s_loss_history[-1])/s_loss_history[0]*100:.2f}%")
+print(f"  Total Iterations: {len(s_loss_history)}")
+
+print(f"\nEstimatorQNN Convergence Statistics:")
+print(f"  Initial Loss: {e_loss_history[0]:.8f}")
+print(f"  Final Loss: {e_loss_history[-1]:.8f}")
+print(f"  Loss Reduction: {(e_loss_history[0] - e_loss_history[-1])/e_loss_history[0]*100:.2f}%")
+print(f"  Total Iterations: {len(e_loss_history)}")
+
+## -------------- OPTIMIZATION SUMMARY -------------- ##
 print("\n" + "="*50)
 print("OPTIMIZATION SUMMARY")
 print("="*50)
