@@ -18,6 +18,50 @@ import numpy as np
 import time
 import matplotlib.pyplot as plt
 from mpl_toolkits.axes_grid1.inset_locator import zoomed_inset_axes, mark_inset
+import os
+
+# Get the directory where the script is located
+script_dir = os.path.dirname(os.path.abspath(__file__))
+plots_dir = os.path.join(script_dir, 'plots')
+os.makedirs(plots_dir, exist_ok=True)
+
+# =============================================================================
+# SIMULATOR SETUP - Choose ONE of the options below by commenting/uncommenting
+# =============================================================================
+
+# --- OPTION 1: Automatic GPU Detection ---
+# This will try to use qiskit-aer-gpu if available, otherwise it will
+# fall back to the default CPU-based simulators.
+try:
+    # qiskit-aer-gpu is only officially distributed for Linux.
+    # On Windows/macOS, this will fail unless built from source.
+    from qiskit_aer.primitives import Estimator as AerEstimator
+    from qiskit_aer.primitives import Sampler as AerSampler
+    from functools import partial
+    # Check if a GPU device is available in the installed qiskit-aer
+    import qiskit_aer
+    if 'GPU' in qiskit_aer.AerSimulator().available_devices():
+        print("GPU detected. Using Aer-GPU simulators.")
+        Estimator = partial(AerEstimator, backend_options={"device": "GPU", "method": "statevector"})
+        Sampler = partial(AerSampler, backend_options={"device": "GPU", "method": "statevector"})
+    else:
+        raise RuntimeError("GPU device not found in qiskit-aer.")
+except (ImportError, RuntimeError) as e:
+    print(f"GPU simulators not available ({e}). Falling back to default CPU simulators.")
+    print("Note: Pre-compiled qiskit-aer-gpu is only available on Linux.")
+    from qiskit.primitives import StatevectorEstimator as Estimator
+    from qiskit.primitives import StatevectorSampler as Sampler
+
+
+# --- OPTION 2: (CPU Only) ---
+# from qiskit.primitives import StatevectorEstimator as Estimator
+# from qiskit.primitives import StatevectorSampler as Sampler
+
+# =============================================================================
+
+# Choose primitives
+estimator = Estimator()
+sampler = Sampler()
 
 algorithm_globals.random_seed = 13342892 # Set the random seed
 
@@ -27,11 +71,11 @@ params = [Parameter("input1"),Parameter("weight1"),Parameter("weight2")]
 qc.ry(params[0],0) # Rotate 0 qubit to set initial state
 qc.ry(params[1],0) # Rotation weight 1
 qc.ry(params[2],0) # Rotation weight 2
-qc.draw("mpl", style="clifford")
+circuit_plot = qc.draw("mpl", style="clifford")
+circuit_plot.savefig(os.path.join(plots_dir, "v1.1circuit.png"))
 observable = SparsePauliOp.from_list([("Z", 1)])
 
 # Define EstimatorQNN and SamplerQNN
-estimator = Estimator() # Choose the simulation estimator (outputs expectation value)
 estimator_qnn = EstimatorQNN(
     circuit=qc,
     observables=observable,
@@ -39,7 +83,6 @@ estimator_qnn = EstimatorQNN(
     weight_params=[params[1],params[2]],
     estimator=estimator,
 )
-sampler = Sampler() # Choose the simulation sampler (outputs probability distribution)
 sampler_qnn = SamplerQNN(
     circuit=qc, 
     input_params=[params[0]],
@@ -322,6 +365,7 @@ info_text = (
 fig.text(0.02, 0.02, info_text, ha='left', va='bottom', fontsize=10,
          bbox=dict(boxstyle="round,pad=0.5", facecolor='whitesmoke', alpha=0.9, edgecolor='gray'))
 
+plt.savefig(os.path.join(plots_dir, "v1.1stats.png"))
 plt.show()
 
 ## -------------- 3D COST LANDSCAPE VISUALIZATION -------------- ##
@@ -386,6 +430,7 @@ fig_3d.colorbar(surf1, ax=ax1_3d, shrink=0.5, aspect=20)
 fig_3d.colorbar(surf2, ax=ax2_3d, shrink=0.5, aspect=20)
 
 plt.tight_layout()
+plt.savefig(os.path.join(plots_dir, "v1.1landscape3d.png"))
 plt.show()
 
 ## -------------- LOSS CONVERGENCE PLOTS -------------- ##
@@ -434,6 +479,7 @@ ax2_loss.annotate(f'Final Loss: {final_e_loss:.6f}',
                  fontsize=10, fontweight='bold', color='orange')
 
 plt.tight_layout()
+plt.savefig(os.path.join(plots_dir, "v1.1convergence.png"))
 plt.show()
 
 # Print convergence statistics

@@ -16,6 +16,12 @@ import numpy as np
 import time
 import matplotlib.pyplot as plt
 from mpl_toolkits.axes_grid1.inset_locator import zoomed_inset_axes, mark_inset
+import os
+
+# Get the directory where the script is located
+script_dir = os.path.dirname(os.path.abspath(__file__))
+plots_dir = os.path.join(script_dir, 'plots')
+os.makedirs(plots_dir, exist_ok=True)
 
 # =============================================================================
 # SIMULATOR SETUP - Choose ONE of the options below by commenting/uncommenting
@@ -63,7 +69,8 @@ qc=QuantumCircuit(1)
 params = [Parameter("input1"),Parameter("weight1")]
 qc.ry(params[0],0) # Rotate 0 qubit to set initial state
 qc.ry(params[1],0) # Rotation weight
-qc.draw("mpl", style="clifford")
+circuit_plot = qc.draw("mpl", style="clifford")
+circuit_plot.savefig(os.path.join(plots_dir, "v1circuit.png"))
 observable = SparsePauliOp.from_list([("Z", 1)])
 
 # Define EstimatorQNN and SamplerQNN
@@ -357,6 +364,7 @@ info_text = (
 fig.text(0.02, 0.02, info_text, ha='left', va='bottom', fontsize=10,
          bbox=dict(boxstyle="round,pad=0.5", facecolor='whitesmoke', alpha=0.9, edgecolor='gray'))
 
+plt.savefig(os.path.join(plots_dir, 'v1stats.png'))
 plt.show()
 
 ## -------------- LOSS CONVERGENCE PLOTS -------------- ##
@@ -405,6 +413,7 @@ ax2_loss.annotate(f'Final Loss: {final_e_loss:.6f}',
                  fontsize=10, fontweight='bold', color='orange')
 
 plt.tight_layout()
+plt.savefig(os.path.join(plots_dir, 'v1convergence.png'))
 plt.show()
 
 # Print convergence statistics
@@ -498,4 +507,5 @@ ax2.text(0.02, 0.98, estimator_info,
          bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
 
 plt.tight_layout()
+plt.savefig(os.path.join(plots_dir, 'v1landscape.png'))
 plt.show()
