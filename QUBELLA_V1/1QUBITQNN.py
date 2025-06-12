@@ -1,20 +1,14 @@
-#!/usr/bin/env python
-# coding: utf-8
-
 # Goal: Teach a QNN to rotate a qubit by pi/2 on the x-axis
 # Training set size: 1
 # Use both EstimatorQNN and SamplerQNN
 # Have 1 qubit, 1 gate, and 1 observable Z
-# Loss function: arccos(dot product of the output and the target)
 
 from qiskit_machine_learning.utils import algorithm_globals
 from qiskit.circuit import Parameter
 from qiskit import QuantumCircuit
 from qiskit.quantum_info import SparsePauliOp
 from qiskit_machine_learning.neural_networks import EstimatorQNN
-from qiskit.primitives import StatevectorEstimator as Estimator
 from qiskit_machine_learning.neural_networks import SamplerQNN
-from qiskit.primitives import StatevectorSampler as Sampler
 from qiskit.quantum_info import Statevector, Operator
 from qiskit.circuit.library import RYGate
 from qiskit_algorithms.optimizers import ADAM
@@ -23,7 +17,46 @@ import time
 import matplotlib.pyplot as plt
 from mpl_toolkits.axes_grid1.inset_locator import zoomed_inset_axes, mark_inset
 
-algorithm_globals.random_seed = 13342892 # Set the random seed
+# =============================================================================
+# SIMULATOR SETUP - Choose ONE of the options below by commenting/uncommenting
+# =============================================================================
+
+# --- OPTION 1: Automatic GPU Detection ---
+# This will try to use qiskit-aer-gpu if available, otherwise it will
+# fall back to the default CPU-based simulators.
+try:
+    # qiskit-aer-gpu is only officially distributed for Linux.
+    # On Windows/macOS, this will fail unless built from source.
+    from qiskit_aer.primitives import Estimator as AerEstimator
+    from qiskit_aer.primitives import Sampler as AerSampler
+    from functools import partial
+    # Check if a GPU device is available in the installed qiskit-aer
+    import qiskit_aer
+    if 'GPU' in qiskit_aer.AerSimulator().available_devices():
+        print("GPU detected. Using Aer-GPU simulators.")
+        Estimator = partial(AerEstimator, backend_options={"device": "GPU", "method": "statevector"})
+        Sampler = partial(AerSampler, backend_options={"device": "GPU", "method": "statevector"})
+    else:
+        raise RuntimeError("GPU device not found in qiskit-aer.")
+except (ImportError, RuntimeError) as e:
+    print(f"GPU simulators not available ({e}). Falling back to default CPU simulators.")
+    print("Note: Pre-compiled qiskit-aer-gpu is only available on Linux.")
+    from qiskit.primitives import StatevectorEstimator as Estimator
+    from qiskit.primitives import StatevectorSampler as Sampler
+
+
+# --- OPTION 2: (CPU Only) ---
+# from qiskit.primitives import StatevectorEstimator as Estimator
+# from qiskit.primitives import StatevectorSampler as Sampler
+
+# =============================================================================
+
+# Choose primitives
+estimator = Estimator()
+sampler = Sampler()
+
+# Set the random seed
+algorithm_globals.random_seed = 13342892 
 
 # Create a quantum circuit with 1 qubit and 1 gate parameter + observable
 qc=QuantumCircuit(1)
@@ -34,7 +67,6 @@ qc.draw("mpl", style="clifford")
 observable = SparsePauliOp.from_list([("Z", 1)])
 
 # Define EstimatorQNN and SamplerQNN
-estimator = Estimator() # Choose the simulation estimator (outputs expectation value)
 estimator_qnn = EstimatorQNN(
     circuit=qc,
     observables=observable,
@@ -42,7 +74,6 @@ estimator_qnn = EstimatorQNN(
     weight_params=[params[1]],
     estimator=estimator,
 )
-sampler = Sampler() # Choose the simulation sampler (outputs probability distribution)
 sampler_qnn = SamplerQNN(
     circuit=qc, 
     input_params=[params[0]],
