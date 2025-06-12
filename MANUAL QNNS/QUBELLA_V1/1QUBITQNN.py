@@ -153,7 +153,8 @@ optimizer = ADAM(
     lr=0.01,        # Much smaller learning rate for quantum optimization (was 0.01)
     beta_1=0.9,
     beta_2=0.99,    # Slightly higher beta_2 for more momentum averaging
-    eps=1e-8
+    eps=1e-8,
+    tol=1e-12       # Much stricter tolerance to prevent early stopping
 )
 
 # Build callables for ADAM with loss tracking
@@ -177,8 +178,6 @@ def adam_functions(qnn, is_estimator=True):
             estimator_qnn=qnn if is_estimator else None,
             sampler_qnn=qnn if not is_estimator else None,
         )
-        # Clip gradients to prevent extreme values that cause oscillations
-        grad = np.clip(grad, -1.0, 1.0)
         return grad
     
     return loss_fn, grad_fn, loss_history
@@ -367,67 +366,7 @@ fig.text(0.02, 0.02, info_text, ha='left', va='bottom', fontsize=10,
 plt.savefig(os.path.join(plots_dir, 'v1stats.png'))
 plt.show()
 
-## -------------- LOSS CONVERGENCE PLOTS -------------- ##
-print("\n" + "="*50)
-print("LOSS CONVERGENCE VISUALIZATION")
-print("="*50)
 
-# Create loss convergence plots
-fig_loss, (ax1_loss, ax2_loss) = plt.subplots(1, 2, figsize=(16, 6))
-fig_loss.suptitle('Training Loss Convergence - 1 Weight Parameter', fontsize=16, fontweight='bold')
-
-# Plot SamplerQNN loss convergence
-iterations_s = range(1, len(s_loss_history) + 1)
-ax1_loss.plot(iterations_s, s_loss_history, 'r-', linewidth=2, label='SamplerQNN Loss', alpha=0.8)
-ax1_loss.set_xlabel('Training Iteration', fontsize=12)
-ax1_loss.set_ylabel('Loss Value', fontsize=12)
-ax1_loss.set_title('SamplerQNN Loss Convergence', fontsize=14, fontweight='bold')
-ax1_loss.grid(True, alpha=0.3)
-ax1_loss.set_yscale('log')  # Use log scale for better visualization
-ax1_loss.legend()
-
-# Add final loss annotation
-final_s_loss = s_loss_history[-1]
-ax1_loss.annotate(f'Final Loss: {final_s_loss:.6f}', 
-                 xy=(len(s_loss_history), final_s_loss), 
-                 xytext=(len(s_loss_history)*0.7, final_s_loss*2),
-                 arrowprops=dict(arrowstyle='->', color='red', alpha=0.7),
-                 fontsize=10, fontweight='bold', color='red')
-
-# Plot EstimatorQNN loss convergence
-iterations_e = range(1, len(e_loss_history) + 1)
-ax2_loss.plot(iterations_e, e_loss_history, 'orange', linewidth=2, label='EstimatorQNN Loss', alpha=0.8)
-ax2_loss.set_xlabel('Training Iteration', fontsize=12)
-ax2_loss.set_ylabel('Loss Value', fontsize=12)
-ax2_loss.set_title('EstimatorQNN Loss Convergence', fontsize=14, fontweight='bold')
-ax2_loss.grid(True, alpha=0.3)
-ax2_loss.set_yscale('log')  # Use log scale for better visualization
-ax2_loss.legend()
-
-# Add final loss annotation
-final_e_loss = e_loss_history[-1]
-ax2_loss.annotate(f'Final Loss: {final_e_loss:.6f}', 
-                 xy=(len(e_loss_history), final_e_loss), 
-                 xytext=(len(e_loss_history)*0.7, final_e_loss*2),
-                 arrowprops=dict(arrowstyle='->', color='orange', alpha=0.7),
-                 fontsize=10, fontweight='bold', color='orange')
-
-plt.tight_layout()
-plt.savefig(os.path.join(plots_dir, 'v1convergence.png'))
-plt.show()
-
-# Print convergence statistics
-print(f"SamplerQNN Convergence Statistics:")
-print(f"  Initial Loss: {s_loss_history[0]:.8f}")
-print(f"  Final Loss: {s_loss_history[-1]:.8f}")
-print(f"  Loss Reduction: {(s_loss_history[0] - s_loss_history[-1])/s_loss_history[0]*100:.2f}%")
-print(f"  Total Iterations: {len(s_loss_history)}")
-
-print(f"\nEstimatorQNN Convergence Statistics:")
-print(f"  Initial Loss: {e_loss_history[0]:.8f}")
-print(f"  Final Loss: {e_loss_history[-1]:.8f}")
-print(f"  Loss Reduction: {(e_loss_history[0] - e_loss_history[-1])/e_loss_history[0]*100:.2f}%")
-print(f"  Total Iterations: {len(e_loss_history)}")
 
 ## -------------- COST LANDSCAPE VISUALIZATION -------------- ##
 print("\n" + "="*50)
@@ -508,4 +447,48 @@ ax2.text(0.02, 0.98, estimator_info,
 
 plt.tight_layout()
 plt.savefig(os.path.join(plots_dir, 'v1landscape.png'))
+plt.show()
+
+
+## -------------- LOSS VS ITERATION PLOT -------------- ##
+print("\n" + "="*50)
+print("LOSS VS. TRAINING ITERATION")
+print("="*50)
+
+fig_loss, ax_loss = plt.subplots(figsize=(12, 7))
+
+# Plot SamplerQNN loss history
+ax_loss.plot(
+    range(1, len(s_loss_history) + 1),
+    s_loss_history,
+    'r-o',
+    markersize=4,
+    linewidth=1.5,
+    label=f'SamplerQNN (Final Loss: {s_loss_history[-1]:.4e}, Iterations: {len(s_loss_history)})'
+)
+
+# Plot EstimatorQNN loss history
+ax_loss.plot(
+    range(1, len(e_loss_history) + 1),
+    e_loss_history,
+    color='orange',
+    marker='x',
+    markersize=5,
+    linestyle='--',
+    linewidth=1.5,
+    label=f'EstimatorQNN (Final Loss: {e_loss_history[-1]:.4e}, Iterations: {len(e_loss_history)})'
+)
+
+ax_loss.set_xlabel('Training Iteration', fontsize=12)
+ax_loss.set_ylabel('Loss Value (Log Scale)', fontsize=12)
+ax_loss.set_title('Loss vs. Training Iteration', fontsize=14, fontweight='bold')
+ax_loss.grid(True, which="both", linestyle='--', linewidth=0.5)
+ax_loss.legend(fontsize=10, loc='best')
+ax_loss.set_yscale('log') # Using a log scale is helpful for visualizing loss reduction.
+
+plt.tight_layout(pad=1.5)
+fig_loss.suptitle('QNN Training Loss History', fontsize=16, fontweight='bold')
+fig_loss.subplots_adjust(top=0.92)
+
+plt.savefig(os.path.join(plots_dir, 'v1_loss_history.png'))
 plt.show()
