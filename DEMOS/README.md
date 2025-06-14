@@ -6,7 +6,7 @@ This folder contains experiments with different Quantum Neural Network architect
 
 ## Models
 
-### `qiskit_qnnDEFAULT.ipynb` - Official Qiskit Tutorial
+### `qiskit_qnn_DEFAULT.ipynb` - Official Qiskit Tutorial
 - **Source**: [Qiskit Machine Learning Tutorial](https://qiskit-community.github.io/qiskit-machine-learning/tutorials/02_neural_network_classifier_and_regressor.html)
 - **Architecture**: 2-qubit ZZFeatureMap + RealAmplitudes ansatz
 - **Performance**: ~52% accuracy
